@@ -64,7 +64,7 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
             _ <- onMySQL.ToDoRepository
                    .add(
                      ToDo(
-                       todoData.categoryId.toLong.asInstanceOf[ToDoCategory.Id],
+                       todoData.categoryId.asInstanceOf[ToDoCategory.Id],
                        todoData.title,
                        Option(todoData.body),
                        ToDo.States.TODO.code

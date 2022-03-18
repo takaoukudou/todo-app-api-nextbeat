@@ -7,12 +7,12 @@ import play.api.libs.json._
 case class JsValueCreateTodo(
     title:      String,
     body:       String,
-    categoryId: String
+    categoryId: Long
 )
 
 object JsValueCreateTodo {
   implicit val reads: Reads[JsValueCreateTodo] =
     ((__ \ "title").read[String] and
       (__ \ "body").read[String] and
-      (__ \ "categoryId").read[String])(JsValueCreateTodo.apply _)
+      (__ \ "categoryId").read[Long])(JsValueCreateTodo.apply _)
 }
