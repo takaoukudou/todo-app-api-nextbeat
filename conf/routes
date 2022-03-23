@@ -5,18 +5,19 @@
 
 # An example controller showing a sample home page
 #GET         /                                   controllers.HomeController.index
-GET         /hello                          controllers.HomeController.hello
-POST        /hello                          controllers.HomeController.helloJson
+GET           /hello                    controllers.HomeController.hello
+POST          /hello                    controllers.HomeController.helloJson
 
 # Map static resources from the /public folder to the /assets URL path
-GET         /assets/*file                   controllers.Assets.versioned(path="/public", file: Asset)
+GET           /assets/*file             controllers.Assets.versioned(path="/public", file: Asset)
 
-GET         /todo/list                      controllers.ToDoController.list
-POST        /todo/store                     controllers.ToDoController.store
-POST        /todo/$id<[0-9]+>/update        controllers.ToDoController.update(id: Long)
-POST        /todo/delete                    controllers.ToDoController.delete
+GET           /todos                    controllers.ToDoController.list
+GET           /todos/$id<[0-9]+>        controllers.ToDoController.get(id: Long)
+POST          /todos                    controllers.ToDoController.store
+PUT           /todos/$id<[0-9]+>        controllers.ToDoController.update(id: Long)
+DELETE        /todos/$id<[0-9]+>        controllers.ToDoController.delete(id: Long)
 
-GET         /category/list                  controllers.CategoryController.list
+GET           /categories               controllers.CategoryController.list
 #GET         /category/store                     controllers.CategoryController.register
 #POST        /category/store                     controllers.CategoryController.store
 #GET         /category/$id<[0-9]+>/edit          controllers.CategoryController.edit(id: Long)
