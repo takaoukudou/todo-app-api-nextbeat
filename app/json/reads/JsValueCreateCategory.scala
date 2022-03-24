@@ -11,8 +11,5 @@ case class JsValueCreateCategory(
 )
 
 object JsValueCreateCategory {
-  implicit val reads: Reads[JsValueCreateCategory] =
-    ((__ \ "name").read[String] and
-      (__ \ "slug").read[String] and
-      (__ \ "color").read[Short])(JsValueCreateCategory.apply _)
+  implicit val reads: Reads[JsValueCreateCategory] = Json.reads
 }

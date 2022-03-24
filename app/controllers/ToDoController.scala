@@ -127,7 +127,7 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
     } yield {
       result match {
         case None => NotFound(Json.obj("message" -> "not found"))
-        case _    => Ok(Json.obj("message" -> "delete compeleted"))
+        case _    => Ok(Json.obj("message" -> "delete completed"))
       }
     }
   }

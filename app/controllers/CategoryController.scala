@@ -1,6 +1,6 @@
 package controllers
 
-import json.reads.{JsValueCreateCategory, JsValueOnlyIdCategory}
+import json.reads.JsValueCreateCategory
 import json.writes.JsValueCategoryItem
 import lib.model.ToDoCategory
 import lib.persistence.onMySQL
@@ -113,23 +113,14 @@ class CategoryController @Inject() (val controllerComponents: ControllerComponen
       )
   }
 
-  def delete() = Action(parse.json) async { implicit request =>
-    request.body
-      .validate[JsValueOnlyIdCategory]
-      .fold(
-        errors => {
-          Future.successful(BadRequest(Json.obj("message" -> "validation error")))
-        },
-        data => {
-          for {
-            result <- onMySQL.ToDoCategoryRepository.remove(data.id.asInstanceOf[ToDoCategory.Id])
-          } yield {
-            result match {
-              case None => NotFound(Json.obj("message" -> "not found"))
-              case _    => Ok(Json.obj("message" -> "delete completed"))
-            }
-          }
-        }
-      )
+  def delete(id: Long) = Action async { implicit request =>
+    for {
+      result <- onMySQL.ToDoCategoryRepository.remove(id.asInstanceOf[ToDoCategory.Id])
+    } yield {
+      result match {
+        case None => NotFound(Json.obj("message" -> "not found"))
+        case _    => Ok(Json.obj("message" -> "delete completed"))
+      }
+    }
   }
 }
