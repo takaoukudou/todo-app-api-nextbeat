@@ -39,27 +39,28 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
   }
 
   def get(id: Long) = Action async { implicit request =>
-    val toDoCategories = onMySQL.ToDoCategoryRepository.all()
-    for {
-      toDoOpt        <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
-      toDoCategories <- toDoCategories
-    } yield {
-      toDoOpt match {
-        case Some(toDo) => {
-          val categoryOpt = toDoCategories.find(_.id == toDo.v.categoryId).map(_.v)
-          val jsValue     = JsValueTodoItem(
-            ViewValueToDo(
-              toDo.id,
-              toDo.v.title,
-              toDo.v.body,
-              ToDo.States(toDo.v.state).name,
-              categoryOpt.map(_.name).getOrElse("なし"),
-              categoryOpt.map(_.color).getOrElse(-1)
-            )
-          )
-          Ok(Json.toJson(jsValue))
+    val toDoOptFuture = onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+    toDoOptFuture.flatMap { toDoOpt =>
+      {
+        toDoOpt match {
+          case Some(toDo) =>
+            for {
+              categoryOpt <- onMySQL.ToDoCategoryRepository.get(toDo.v.categoryId)
+            } yield {
+              val jsValue = JsValueTodoItem(
+                ViewValueToDo(
+                  toDo.id,
+                  toDo.v.title,
+                  toDo.v.body,
+                  ToDo.States(toDo.v.state).name,
+                  categoryOpt.map(_.v.name).getOrElse("なし"),
+                  categoryOpt.map(_.v.color).getOrElse(-1)
+                )
+              )
+              Ok(Json.toJson(jsValue))
+            }
+          case _          => Future.successful(NotFound(Json.obj("message" -> "not found")))
         }
-        case _          => NotFound(Json.obj("message" -> "not found"))
       }
     }
   }
