@@ -11,8 +11,5 @@ case class JsValueCreateTodo(
 )
 
 object JsValueCreateTodo {
-  implicit val reads: Reads[JsValueCreateTodo] =
-    ((__ \ "title").read[String] and
-      (__ \ "body").read[String] and
-      (__ \ "categoryId").read[Long])(JsValueCreateTodo.apply _)
+  implicit val reads: Reads[JsValueCreateTodo] = Json.reads
 }

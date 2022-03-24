@@ -1,6 +1,6 @@
 package controllers
 
-import json.reads.{JsValueCreateTodo, JsValueDeleteTodo, JsValueUpdateTodo}
+import json.reads.{JsValueCreateTodo, JsValueUpdateTodo}
 import json.writes.JsValueTodoItem
 import lib.model.{ToDo, ToDoCategory}
 import lib.persistence.onMySQL
@@ -35,6 +35,33 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
         )
       })
       Ok(Json.toJson(jsValueTodoItemList))
+    }
+  }
+
+  def get(id: Long) = Action async { implicit request =>
+    val toDoOptFuture = onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+    toDoOptFuture.flatMap { toDoOpt =>
+      {
+        toDoOpt match {
+          case Some(toDo) =>
+            for {
+              categoryOpt <- onMySQL.ToDoCategoryRepository.get(toDo.v.categoryId)
+            } yield {
+              val jsValue = JsValueTodoItem(
+                ViewValueToDo(
+                  toDo.id,
+                  toDo.v.title,
+                  toDo.v.body,
+                  ToDo.States(toDo.v.state).name,
+                  categoryOpt.map(_.v.name).getOrElse("なし"),
+                  categoryOpt.map(_.v.color).getOrElse(-1)
+                )
+              )
+              Ok(Json.toJson(jsValue))
+            }
+          case _          => Future.successful(NotFound(Json.obj("message" -> "not found")))
+        }
+      }
     }
   }
 
@@ -94,23 +121,14 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
       )
   }
 
-  def delete() = Action(parse.json) async { implicit request =>
-    request.body
-      .validate[JsValueDeleteTodo]
-      .fold(
-        errors => {
-          Future.successful(BadRequest(Json.obj("message" -> "validation error")))
-        },
-        data => {
-          for {
-            result <- onMySQL.ToDoRepository.remove(data.id.asInstanceOf[ToDo.Id])
-          } yield {
-            result match {
-              case None => NotFound(Json.obj("message" -> "not found"))
-              case _    => Ok(Json.obj("message" -> "delete completed"))
-            }
-          }
-        }
-      )
+  def delete(id: Long) = Action async { implicit request =>
+    for {
+      result <- onMySQL.ToDoRepository.remove(id.asInstanceOf[ToDo.Id])
+    } yield {
+      result match {
+        case None => NotFound(Json.obj("message" -> "not found"))
+        case _    => Ok(Json.obj("message" -> "delete compeleted"))
+      }
+    }
   }
 }
