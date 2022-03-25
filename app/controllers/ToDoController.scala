@@ -39,28 +39,24 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
   }
 
   def get(id: Long) = Action async { implicit request =>
-    val toDoOptFuture = onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
-    toDoOptFuture.flatMap { toDoOpt =>
-      {
-        toDoOpt match {
-          case Some(toDo) =>
-            for {
-              categoryOpt <- onMySQL.ToDoCategoryRepository.get(toDo.v.categoryId)
-            } yield {
-              val jsValue = JsValueTodoItem(
-                ViewValueToDo(
-                  toDo.id,
-                  toDo.v.title,
-                  toDo.v.body,
-                  ToDo.States(toDo.v.state).name,
-                  categoryOpt.map(_.v.name).getOrElse("なし"),
-                  categoryOpt.map(_.v.color).getOrElse(-1)
-                )
-              )
-              Ok(Json.toJson(jsValue))
-            }
-          case _          => Future.successful(NotFound(Json.obj("message" -> "not found")))
-        }
+    for {
+      toDoOpt     <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+      categoryOpt <- toDoOpt.fold(Future.successful(Option.empty[ToDoCategory.EmbeddedId])) { toDo =>
+                       onMySQL.ToDoCategoryRepository.get(toDo.v.categoryId)
+                     }
+    } yield {
+      toDoOpt.fold(NotFound(Json.obj("message" -> "not found"))) { toDo =>
+        val jsValue = JsValueTodoItem(
+          ViewValueToDo(
+            toDo.id,
+            toDo.v.title,
+            toDo.v.body,
+            ToDo.States(toDo.v.state).name,
+            categoryOpt.map(_.v.name).getOrElse("なし"),
+            categoryOpt.map(_.v.color).getOrElse(-1)
+          )
+        )
+        Ok(Json.toJson(jsValue))
       }
     }
   }
@@ -73,18 +69,33 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
           Future.successful(BadRequest(Json.obj("message" -> "validation error")))
         },
         todoData => {
+          val toDoCategory = onMySQL.ToDoCategoryRepository.get(todoData.categoryId.asInstanceOf[ToDoCategory.Id])
           for {
-            _ <- onMySQL.ToDoRepository
-                   .add(
-                     ToDo(
-                       todoData.categoryId.asInstanceOf[ToDoCategory.Id],
-                       todoData.title,
-                       Option(todoData.body),
-                       ToDo.States.TODO.code
-                     )
-                   )
+            id           <- onMySQL.ToDoRepository
+                              .add(
+                                ToDo(
+                                  todoData.categoryId.asInstanceOf[ToDoCategory.Id],
+                                  todoData.title,
+                                  Option(todoData.body),
+                                  ToDo.States.TODO.code
+                                )
+                              )
+            toDoCategory <- toDoCategory
           } yield {
-            Ok(Json.obj("message" -> "store compeleted"))
+            Ok(
+              Json.toJson(
+                JsValueTodoItem(
+                  ViewValueToDo(
+                    id,
+                    todoData.title,
+                    Option(todoData.body),
+                    ToDo.States.TODO.name,
+                    toDoCategory.map(_.v.name).getOrElse("なし"),
+                    toDoCategory.map(_.v.color).getOrElse(-1)
+                  )
+                )
+              )
+            )
           }
         }
       )
@@ -99,23 +110,34 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
         },
         todoData => {
           for {
-            oToDo  <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
-            result <- {
-              oToDo match {
-                case Some(toDo) =>
-                  onMySQL.ToDoRepository.update(
-                    toDo.map(
-                      _.copy(title = todoData.title, categoryId = todoData.categoryId.asInstanceOf[ToDoCategory.Id], body = Some(todoData.body), state = todoData.state)
+            oToDo        <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+            updateOTodo  <- oToDo.fold(Future.successful(Option.empty[ToDo.EmbeddedId])) { toDo =>
+                              onMySQL.ToDoRepository.update(
+                                toDo.map(
+                                  _.copy(title = todoData.title, categoryId = todoData.categoryId.asInstanceOf[ToDoCategory.Id], body = Some(todoData.body), state = todoData.state)
+                                )
+                              )
+                            }
+            toDoCategory <- updateOTodo.fold(Future.successful(Option.empty[ToDoCategory.EmbeddedId])) { _ =>
+                              onMySQL.ToDoCategoryRepository.get(todoData.categoryId.asInstanceOf[ToDoCategory.Id])
+                            }
+          } yield updateOTodo match {
+            case None    => NotFound(Json.obj("message" -> "not found"))
+            case Some(_) =>
+              Ok(
+                Json.toJson(
+                  JsValueTodoItem(
+                    ViewValueToDo(
+                      id.asInstanceOf[ToDo.Id],
+                      todoData.title,
+                      Some(todoData.body),
+                      ToDo.States(todoData.state).name,
+                      toDoCategory.map(_.v.name).getOrElse("なし"),
+                      toDoCategory.map(_.v.color).getOrElse(-1)
                     )
                   )
-                case None       => Future.successful(None)
-              }
-            }
-          } yield {
-            result match {
-              case Some(_) => Ok(Json.obj("message" -> "update completed"))
-              case _       => NotFound(Json.obj("message" -> "not found"))
-            }
+                )
+              )
           }
         }
       )
@@ -127,7 +149,7 @@ class ToDoController @Inject() (val controllerComponents: ControllerComponents)(
     } yield {
       result match {
         case None => NotFound(Json.obj("message" -> "not found"))
-        case _    => Ok(Json.obj("message" -> "delete completed"))
+        case _    => Ok(Json.obj("id" -> id))
       }
     }
   }
