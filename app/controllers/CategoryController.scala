@@ -63,16 +63,24 @@ class CategoryController @Inject() (val controllerComponents: ControllerComponen
         },
         categoryData => {
           for {
-            _ <- onMySQL.ToDoCategoryRepository
-                   .add(
-                     ToDoCategory(
-                       categoryData.name,
-                       categoryData.slug,
-                       categoryData.color
-                     )
-                   )
+            id <- onMySQL.ToDoCategoryRepository
+                    .add(
+                      ToDoCategory(
+                        categoryData.name,
+                        categoryData.slug,
+                        categoryData.color
+                      )
+                    )
           } yield {
-            Ok(Json.obj("message" -> "store completed"))
+            val jsValue = JsValueCategoryItem(
+              ViewValueToDoCategory(
+                id,
+                categoryData.name,
+                categoryData.slug,
+                categoryData.color
+              )
+            )
+            Ok(Json.toJson(jsValue))
           }
         }
       )
@@ -105,7 +113,17 @@ class CategoryController @Inject() (val controllerComponents: ControllerComponen
             }
           } yield {
             result match {
-              case Some(_) => Ok(Json.obj("message" -> "update completed"))
+              case Some(_) => {
+                val jsValue = JsValueCategoryItem(
+                  ViewValueToDoCategory(
+                    id.asInstanceOf[ToDoCategory.Id],
+                    categoryData.name,
+                    categoryData.slug,
+                    categoryData.color
+                  )
+                )
+                Ok(Json.toJson(jsValue))
+              }
               case _       => NotFound(Json.obj("message" -> "not found"))
             }
           }
@@ -119,7 +137,7 @@ class CategoryController @Inject() (val controllerComponents: ControllerComponen
     } yield {
       result match {
         case None => NotFound(Json.obj("message" -> "not found"))
-        case _    => Ok(Json.obj("message" -> "delete completed"))
+        case _    => Ok(Json.obj("id" -> id))
       }
     }
   }
