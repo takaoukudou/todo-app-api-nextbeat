@@ -1,12 +1,13 @@
 package controllers
 
-import model.ViewValueToDo.ToDoFormData
+import json.reads.{JsValueCreateTodo, JsValueUpdateTodo}
+import json.writes.JsValueTodoItem
 import lib.model.{ToDo, ToDoCategory}
-import play.api.i18n.I18nSupport
-import play.api.mvc._
 import lib.persistence.onMySQL
-import model.{ViewValueToDo, ViewValueToDoCategory}
-import play.api.data.Form
+import model.ViewValueToDo
+import play.api.i18n.I18nSupport
+import play.api.libs.json.Json
+import play.api.mvc._
 
 import javax.inject._
 import scala.concurrent.{ExecutionContext, Future}
@@ -14,151 +15,142 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class ToDoController @Inject() (val controllerComponents: ControllerComponents)(implicit ec: ExecutionContext) extends BaseController with I18nSupport {
 
-  def list() = Action async { implicit request: Request[AnyContent] =>
+  def list(): Action[AnyContent] = Action async { implicit request: Request[AnyContent] =>
     val toDos = onMySQL.ToDoRepository.all()
     for {
       toDoCategories <- onMySQL.ToDoCategoryRepository.all()
       toDos          <- toDos
     } yield {
-      val toDoInfoList = toDos.map(toDo => {
+      val jsValueTodoItemList = toDos.map(toDo => {
         val categoryOpt = toDoCategories.find(_.id == toDo.v.categoryId).map(_.v)
-        ViewValueToDo(
-          toDo.id,
-          toDo.v.title,
-          toDo.v.body,
-          ToDo.States(toDo.v.state).name,
-          categoryOpt.map(_.name).getOrElse("なし"),
-          categoryOpt.map(_.color).getOrElse(-1)
+        JsValueTodoItem(
+          ViewValueToDo(
+            toDo.id,
+            toDo.v.title,
+            toDo.v.body,
+            ToDo.States(toDo.v.state).name,
+            categoryOpt.map(_.name).getOrElse("なし"),
+            categoryOpt.map(_.color).getOrElse(-1)
+          )
         )
       })
-      Ok(views.html.todo.List(toDoInfoList))
+      Ok(Json.toJson(jsValueTodoItemList))
     }
   }
 
-  private def getViewValueToDoCategories(toDoCategories: Seq[ToDoCategory.EmbeddedId]) = {
-    toDoCategories.map(toDoCategory => ViewValueToDoCategory(toDoCategory.id, toDoCategory.v.name, toDoCategory.v.slug, toDoCategory.v.color))
-  }
-
-  def register() = Action async { implicit request: Request[AnyContent] =>
+  def get(id: Long) = Action async { implicit request =>
     for {
-      toDoCategories <- onMySQL.ToDoCategoryRepository.all()
+      toDoOpt     <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+      categoryOpt <- toDoOpt.fold(Future.successful(Option.empty[ToDoCategory.EmbeddedId])) { toDo =>
+                       onMySQL.ToDoCategoryRepository.get(toDo.v.categoryId)
+                     }
     } yield {
-      Ok(views.html.todo.Store(getViewValueToDoCategories(toDoCategories), ViewValueToDo.form))
-    }
-  }
-
-  /** 登録処理実を行う
-    */
-  def store() = Action async { implicit request: Request[AnyContent] =>
-    ViewValueToDo.form
-      .bindFromRequest()
-      .fold(
-        // 処理が失敗した場合に呼び出される関数
-        (formWithErrors: Form[ToDoFormData]) => {
-          for {
-            toDoCategories <- onMySQL.ToDoCategoryRepository.all()
-          } yield {
-            BadRequest(views.html.todo.Store(getViewValueToDoCategories(toDoCategories), formWithErrors))
-          }
-        },
-        // 処理が成功した場合に呼び出される関数
-        (toDoFormData: ToDoFormData) => {
-          for {
-            // データを登録。returnのidは不要なので捨てる
-            _ <- onMySQL.ToDoRepository
-                   .add(
-                     ToDo(
-                       toDoFormData.categoryId,
-                       toDoFormData.title,
-                       Option(toDoFormData.body),
-                       ToDo.States.TODO.code
-                     )
-                   )
-          } yield {
-            Redirect(routes.ToDoController.list())
-          }
-        }
-      )
-  }
-
-  def edit(id: Long) = Action async { implicit request: Request[AnyContent] =>
-    val toDoCategories = onMySQL.ToDoCategoryRepository.all()
-    for {
-      toDo           <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
-      toDoCategories <- toDoCategories
-    } yield {
-      toDo match {
-        case Some(toDo) =>
-          Ok(
-            views.html.todo.Edit(
-              toDo.v.id.getOrElse(0),
-              getViewValueToDoCategories(toDoCategories),
-              ViewValueToDo.form
-            )
+      toDoOpt.fold(NotFound(Json.obj("message" -> "not found"))) { toDo =>
+        val jsValue = JsValueTodoItem(
+          ViewValueToDo(
+            toDo.id,
+            toDo.v.title,
+            toDo.v.body,
+            ToDo.States(toDo.v.state).name,
+            categoryOpt.map(_.v.name).getOrElse("なし"),
+            categoryOpt.map(_.v.color).getOrElse(-1)
           )
-        case None       => NotFound(views.html.error.page404())
+        )
+        Ok(Json.toJson(jsValue))
       }
     }
   }
 
-  def update(id: Long) = Action async { implicit request: Request[AnyContent] =>
-    ViewValueToDo.form
-      .bindFromRequest()
+  def store() = Action(parse.json) async { implicit request =>
+    request.body
+      .validate[JsValueCreateTodo]
       .fold(
-        (formWithErrors: Form[ToDoFormData]) => {
-          for {
-            toDoCategories <- onMySQL.ToDoCategoryRepository.all()
-          } yield {
-            BadRequest(views.html.todo.Edit(id, getViewValueToDoCategories(toDoCategories), formWithErrors))
-          }
+        errors => {
+          Future.successful(BadRequest(Json.obj("message" -> "validation error")))
         },
-        (data: ToDoFormData) => {
+        todoData => {
+          val toDoCategory = onMySQL.ToDoCategoryRepository.get(todoData.categoryId.asInstanceOf[ToDoCategory.Id])
           for {
-            oToDo  <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
-            result <- {
-              oToDo match {
-                case Some(toDo) =>
-                  onMySQL.ToDoRepository.update(
-                    toDo.map(
-                      _.copy(
-                        title      = data.title,
-                        categoryId = data.categoryId,
-                        body       = Some(data.body),
-                        state      = data.state.get.toShort
-                      )
-                    )
-                  )
-                case None       =>
-                  for {
-                    toDoCategories <- onMySQL.ToDoCategoryRepository.all()
-                  } yield {
-                    BadRequest(views.html.todo.Edit(id, getViewValueToDoCategories(toDoCategories), ViewValueToDo.form))
-                  }
-              }
-            }
+            id           <- onMySQL.ToDoRepository
+                              .add(
+                                ToDo(
+                                  todoData.categoryId.asInstanceOf[ToDoCategory.Id],
+                                  todoData.title,
+                                  Option(todoData.body),
+                                  ToDo.States.TODO.code
+                                )
+                              )
+            toDoCategory <- toDoCategory
           } yield {
-            result match {
-              case Some(_) => Redirect(routes.ToDoController.list())
-              case _       => NotFound(views.html.error.page404())
-            }
+            Ok(
+              Json.toJson(
+                JsValueTodoItem(
+                  ViewValueToDo(
+                    id,
+                    todoData.title,
+                    Option(todoData.body),
+                    ToDo.States.TODO.name,
+                    toDoCategory.map(_.v.name).getOrElse("なし"),
+                    toDoCategory.map(_.v.color).getOrElse(-1)
+                  )
+                )
+              )
+            )
           }
         }
       )
   }
 
-  def delete() = Action async { implicit request: Request[AnyContent] =>
-    val idOpt = request.body.asFormUrlEncoded.get("id").headOption
-    idOpt match {
-      case None     => Future.successful(NotFound(views.html.error.page404()))
-      case Some(id) =>
-        for {
-          result <- onMySQL.ToDoRepository.remove(id.toLong.asInstanceOf[ToDo.Id])
-        } yield {
-          result match {
-            case None => NotFound(views.html.error.page404())
-            case _    => Redirect(routes.ToDoController.list())
+  def update(id: Long) = Action(parse.json) async { implicit request =>
+    request.body
+      .validate[JsValueUpdateTodo]
+      .fold(
+        errors => {
+          Future.successful(BadRequest(Json.obj("message" -> "validation error")))
+        },
+        todoData => {
+          for {
+            oToDo        <- onMySQL.ToDoRepository.get(id.asInstanceOf[ToDo.Id])
+            updateOTodo  <- oToDo.fold(Future.successful(Option.empty[ToDo.EmbeddedId])) { toDo =>
+                              onMySQL.ToDoRepository.update(
+                                toDo.map(
+                                  _.copy(title = todoData.title, categoryId = todoData.categoryId.asInstanceOf[ToDoCategory.Id], body = Some(todoData.body), state = todoData.state)
+                                )
+                              )
+                            }
+            toDoCategory <- updateOTodo.fold(Future.successful(Option.empty[ToDoCategory.EmbeddedId])) { _ =>
+                              onMySQL.ToDoCategoryRepository.get(todoData.categoryId.asInstanceOf[ToDoCategory.Id])
+                            }
+          } yield updateOTodo match {
+            case None    => NotFound(Json.obj("message" -> "not found"))
+            case Some(_) =>
+              Ok(
+                Json.toJson(
+                  JsValueTodoItem(
+                    ViewValueToDo(
+                      id.asInstanceOf[ToDo.Id],
+                      todoData.title,
+                      Some(todoData.body),
+                      ToDo.States(todoData.state).name,
+                      toDoCategory.map(_.v.name).getOrElse("なし"),
+                      toDoCategory.map(_.v.color).getOrElse(-1)
+                    )
+                  )
+                )
+              )
           }
         }
+      )
+  }
+
+  def delete(id: Long) = Action async { implicit request =>
+    for {
+      result <- onMySQL.ToDoRepository.remove(id.asInstanceOf[ToDo.Id])
+    } yield {
+      result match {
+        case None => NotFound(Json.obj("message" -> "not found"))
+        case _    => Ok(Json.obj("id" -> id))
+      }
     }
   }
 }
